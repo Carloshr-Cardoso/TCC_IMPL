@@ -1,52 +1,59 @@
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
 
 import os
 import time
 import datetime
 import random
-import seaborn as sns
-import re
 import warnings
 
 from glob import glob
 from PIL import Image
 
 from keras.initializers import TruncatedNormal
-from keras.layers import Input, Dense, Reshape, Flatten, Dropout
-from keras.layers import BatchNormalization, Activation, ZeroPadding2D
+from keras.layers import Input, Dense, Reshape, Flatten#, Dropout
+from keras.layers import BatchNormalization, Activation
 from keras.layers.advanced_activations import LeakyReLU
-from keras.layers.convolutional import UpSampling2D, Conv2D, Conv2DTranspose
-from keras.models import Sequential, Model
+from keras.layers.convolutional import Conv2D, Conv2DTranspose
+from keras.models import Model
 from keras.optimizers import Adam
 
 # Hyperparametros
 IMAGE_SIZE = 64
 NOISE_SIZE = 100
+
 LEARNING_RATE_D = 0.00004
 LEARNING_RATE_G = 0.0004
+
 BATCH_SIZE = 64
 BETA1 = 0.5
 WEIGHT_INIT_STDDEV = 0.2
 EPSILON = 0.00005
 SAMPLES_TO_SHOW = 8
-EPOCHS = 50
+SAVE_INTERVAL = 50
+EPOCHS = 500
 
 INPUT_DATA_DIR = "./input/" # Path to the folder with input images. For more info check simspons_dataset.txt
 OUTPUT_DIR = './{date:%Y-%m-%d_%H.%M.%S}/'.format(date=datetime.datetime.now())
+MODELS_SAVE_DIR = OUTPUT_DIR + 'saved_weights/'
+LOSSES_SAVE_DIR = OUTPUT_DIR + 'losses_plots/'
 if not os.path.exists(OUTPUT_DIR):
    os.makedirs(OUTPUT_DIR)
+if not os.path.exists(MODELS_SAVE_DIR):
+   os.makedirs(MODELS_SAVE_DIR)
+if not os.path.exists(LOSSES_SAVE_DIR):
+   os.makedirs(LOSSES_SAVE_DIR)
 # OUTPUT_DIR =""
 
+
 def get_generator(z=(NOISE_SIZE,)):
-    #4*4*512
+    # 4*4*512
     input_layer = Input(z)
     hid = Dense(4*4*512, activation='relu', name='Dense')(input_layer)
     hid = LeakyReLU(alpha=0.2)(hid)
     hid = Reshape((4,4,512))(hid)
 
-    #4*4*512 ==> 8*8*512
+    # 4*4*512 ==> 8*8*512
     hid = Conv2DTranspose(512, kernel_size=[5, 5],
                           strides=[2, 2],
                           padding="same",
@@ -183,7 +190,7 @@ def test(input_z, epoch):
 def summarize_epoch(d_losses, g_losses , data_shape, epoch, duration, input_z):
     minibatch_size = int(data_shape[0]//BATCH_SIZE)
     print("Epoch {}/{}".format(epoch, EPOCHS),
-          "\nDuration: {:.5f}".format(duration),
+          "\nDuração: {:.5f}".format(duration),
           "\nD Loss: {:.5f}".format(np.mean(d_losses[-minibatch_size:])),
           "\nG Loss: {:.5f}".format(np.mean(g_losses[-minibatch_size:])))
     fig, ax = plt.subplots()
@@ -191,7 +198,7 @@ def summarize_epoch(d_losses, g_losses , data_shape, epoch, duration, input_z):
     plt.plot(g_losses, label='Generator', alpha=0.6)
     plt.title("Losses")
     plt.legend()
-    plt.savefig(OUTPUT_DIR + "losses_" + str(epoch) + ".png")
+    plt.savefig(LOSSES_SAVE_DIR + "losses_" + str(epoch) + ".png")
     # plt.show()
     # plt.close()
     test(input_z, epoch)
@@ -264,13 +271,17 @@ d_losses = []
 g_losses = []
 cum_d_loss = 0
 cum_g_loss = 0
-iteration = 0
-# EPOCHS = 50
+
+# EPOCHS = 500
+
+Tempo_Total = time.time()
+batches = get_batches(input_images)
 for epoch in range(EPOCHS):
     epoch += 1
     start_time = time.time()
-
-    for batch_images in get_batches(input_images):
+    iteration = 0
+    for batch_images in batches:
+        time_ite = time.time()
         noise_data = np.random.normal(0, 1, size=(BATCH_SIZE, NOISE_SIZE))
         # We use same labels for generated images as in the real training batch
         generated_images = generator.predict(noise_data)
@@ -300,14 +311,15 @@ for epoch in range(EPOCHS):
         g_loss = gan.train_on_batch(noise_data, np.zeros((BATCH_SIZE, 1)))
         cum_g_loss += g_loss
         g_losses.append(g_loss)
-
-        print(iteration)
+        print("Epoca {}/{} [{}/{}] Durou {:.3f}".format(epoch, EPOCHS, iteration, len(batches), time.time()-time_ite))
         iteration += 1
 
-    if epoch > 0 and epoch % 20 == 0:
+    if epoch > 0 and epoch % SAVE_INTERVAL == 0:
         print("saving model")
-        discriminator.save_weights("desc-simposon-model.h5-" + str(epoch))
-        gan.save_weights("gan-simposon-model.h5-" + str(epoch))
+        discriminator.save_weights(MODELS_SAVE_DIR + "desc-simposon-model.h5-" + str(epoch))
+        gan.save_weights(MODELS_SAVE_DIR + "gan-simposon-model.h5-" + str(epoch))
 
     # Plot the progress
     summarize_epoch(d_losses, g_losses, input_images.shape, epoch, time.time() - start_time, noise_data)
+
+print("Tempo de Execução Total = {:.3f}".format(time.time()-Tempo_Total))
